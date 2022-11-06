@@ -7,9 +7,7 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     py_modules=['dvsolution'],
-    install_requires=[
-        'Click',
-    ],
+    install_requires=[i.strip() for i in open('requirements.txt')],
     entry_points={
         'console_scripts': [
             'dvsolution = dvsolution.scripts.main:cli',
