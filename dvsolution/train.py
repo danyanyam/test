@@ -9,13 +9,26 @@ from sklearn.model_selection import train_test_split
 
 
 def prepare_features(folder: Path) -> np.ndarray:
+    """Aggregates raw data. Extracts following features:
+        - Mid price
+        - Top 5 asks
+        - Top 5 bids
+        - Top 5 ask volumes
+        - Top 5 bid volumes
+
+    Args:
+        folder (Path): path to raw data
+
+    Returns:
+        np.ndarray: matrix of features
+    """
     logger.debug('prepairing features')
 
     data = h5py.File(str(folder / 'data.h5'), 'r')
-    mid_price = ((
+    mid_price = (
         np.array(data['OB/Ask']).min(axis=1) +
         np.array(data['OB/Bid']).max(axis=1)
-    ) / 2).reshape(-1, 1)
+    ).reshape(-1, 1) / 2
 
     return np.hstack(
         (
@@ -29,6 +42,14 @@ def prepare_features(folder: Path) -> np.ndarray:
 
 
 def prepare_target(folder: Path) -> Tuple[h5py._hl.dataset.Dataset]:
+    """Reads hdf5 target
+
+    Args:
+        folder (Path): path to target file
+
+    Returns:
+        Tuple[h5py._hl.dataset.Dataset]: dataset
+    """
     logger.debug('prepairing target')
     result = h5py.File(str(folder / 'result.h5'), 'r')
     return result['Return/TS'], result['Return/Res']
