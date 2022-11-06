@@ -14,11 +14,7 @@ def train_regime(folder: str, task_type: str = 'CPU'):
     """  Trains regressor, based on data in provided FOLDER """
     logger.debug(f'Training for {folder}, {task_type}')
     validate_inputs(Path(folder), ['data.h5', 'result.h5'])
-
-    train(
-        folder=Path(folder),
-        task_type=task_type
-    )
+    train(folder=Path(folder), task_type=task_type)
 
 
 @click.command('predict',
