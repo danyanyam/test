@@ -1,6 +1,8 @@
 ### Architecture
 Boosting on aggregated data, using shuffled cross-validation for model selection and out-of-time (last 100k observations) as performance estimation. Expected quality on out-of-sample:  $R^2 = 0.025$
 
+---
+
 ### Installation
 
 In this project Python 3.8.10 has been used.
@@ -38,4 +40,3 @@ model at `./trained_model` and produces forecast to `./btcusd-h-30/forecast.h5`
 ```bash
 dvsolution predict btcusd-h-30 --task-type GPU
 ```
----
