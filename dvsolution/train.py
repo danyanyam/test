@@ -5,16 +5,10 @@ from pathlib import Path
 from loguru import logger
 from typing import Dict, Tuple
 from sklearn.metrics import r2_score
-from sklearn.model_selection import train_test_split
 
 
 def prepare_features(folder: Path) -> np.ndarray:
     """Aggregates raw data. Extracts following features:
-        - Mid price
-        - Top 5 asks
-        - Top 5 bids
-        - Top 5 ask volumes
-        - Top 5 bid volumes
 
     Args:
         folder (Path): path to raw data
@@ -25,20 +19,64 @@ def prepare_features(folder: Path) -> np.ndarray:
     logger.debug('prepairing features')
 
     data = h5py.File(str(folder / 'data.h5'), 'r')
-    mid_price = (
-        np.array(data['OB/Ask']).min(axis=1) +
-        np.array(data['OB/Bid']).max(axis=1)
-    ).reshape(-1, 1) / 2
+
+    ob_ts = np.array(data['OB/TS'])
+    tr_ts = np.array(data['Trades/TS'])
+
+    trade_idx = (np.searchsorted(tr_ts, ob_ts, side='right') - 1).astype(int)
+    last_amount = np.array(data['Trades/Amount'])[trade_idx].reshape(-1, 1)
+    last_price = np.array(data['Trades/Price'])[trade_idx].reshape(-1, 1)
 
     return np.hstack(
         (
-            np.array(data['OB/Ask'][:, :5]) / mid_price,
-            np.array(data['OB/Bid'][:, :5]) / mid_price,
-            np.array(data['OB/BidV'][:, :5]) / mid_price,
-            np.array(data['OB/AskV'][:, :5]) / mid_price,
-            mid_price,
+            np.log(np.array(data['OB/AskV']).sum(axis=1)).reshape(-1, 1),
+            np.log(np.array(data['OB/BidV']).sum(axis=1)).reshape(-1, 1),
+            np.log(
+                (
+                    np.array(data['OB/Ask']).min(axis=1) +
+                    np.array(data['OB/Bid']).max(axis=1)
+                ) / 2
+            ).reshape(-1, 1),
+            last_amount,
+            np.log(last_price),
+            np.log(data['OB/Ask'][:, :10] - data['OB/Bid'][:, :10]),
+            data['OB/AskV'][:, :7] - data['OB/BidV'][:, :7],
+            np.log(data['OB/AskV'][:, :8] / data['OB/BidV'][:, :8]),
+
         )
     )
+
+
+def train_test_oot(X, y):
+
+    np.random.seed(69)
+
+    # исключаем out of time часть выборки из выборкм для обучения
+    oot_set = np.array(list(range(len(X) - 2_467_910, len(X))))
+    X_oot = X[oot_set]
+    y_oot = y[oot_set]
+
+    validation_set = np.array(list(range(len(X) - 2*2_467_910,
+                                         len(X) - 2_467_910)))
+    X_val = X[validation_set]
+    y_val = y[validation_set]
+
+    validation_set_ = np.hstack([validation_set, oot_set])
+    train_inds = np.array(list(set(range(len(X))) - set(validation_set_)))
+    X = X[train_inds]
+    y = y[train_inds]
+
+    cols = ['log_asks_v', 'log_bids_v', 'mid_price', 'last_amount',
+            'last_price'] +\
+        [f'{i}_price' for i in range(10)] +\
+        [f'{i}_vol_diff' for i in range(7)] +\
+        [f'{i}_vol_rel' for i in range(8)]
+
+    train = cb.Pool(X, y).set_feature_names(cols)
+    test = cb.Pool(X_val, y_val).set_feature_names(cols)
+    oot = cb.Pool(X_oot, y_oot).set_feature_names(cols)
+
+    return train, test, oot, y_oot
 
 
 def prepare_target(folder: Path) -> Tuple[h5py._hl.dataset.Dataset]:
@@ -57,9 +95,7 @@ def prepare_target(folder: Path) -> Tuple[h5py._hl.dataset.Dataset]:
 
 def eval(
     model: cb.CatBoostRegressor,
-    X_val: np.ndarray,
-    y_val: np.ndarray,
-    X_oot: np.ndarray,
+    oot:   cb.Pool,
     y_oot: np.ndarray
 ) -> Dict[str, float]:
     """Evaluates the model, provided data
@@ -76,8 +112,7 @@ def eval(
     """
     logger.debug('evaluating model')
     return {
-        'val': r2_score(y_val, model.predict(X_val)),
-        'oot': r2_score(y_oot, model.predict(X_oot)),
+        'oot': r2_score(y_oot, model.predict(oot)),
         'test': model.get_best_score()['validation']['R2'],
         'train': model.get_best_score()['learn']['R2']
     }
@@ -96,12 +131,13 @@ def prepare_model(task_type: str = 'CPU') -> cb.CatBoostRegressor:
     logger.debug('prepairing model')
     return cb.CatBoostRegressor(
         depth=6,
-        verbose=50,
+        verbose=5,
         random_seed=69,
         eval_metric='R2',
-        learning_rate=0.15,
+        iterations=300,
+        learning_rate=0.007,
         task_type=task_type,
-        bagging_temperature=0.15
+        bagging_temperature=0.07
     )
 
 
@@ -121,13 +157,10 @@ def train(folder: Path, task_type: str = 'CPU') -> None:
     X = prepare_features(folder)
     _, y = prepare_target(folder)
 
-    X_oot, X = X[-10_000:], X[:-10_000]
-    y_oot, y = y[-10_000:], y[:-10_000]
-
+    train, test, oot, y_oot = train_test_oot(X, y)
     model = prepare_model(task_type)
-    X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=69)
-    model.fit(X_train, y_train, eval_set=cb.Pool(X_test, y_test))
+    model.fit(train, eval_set=test)
+    print(eval(model, oot, y_oot))
 
-    print(eval(model, X_test, y_test, X_oot, y_oot))
     model.save_model("trained_model")
     logger.info(f'Training ended! Model has been saved to ./trained_model')
