@@ -124,14 +124,13 @@ def evaluate(
 
     Args:
         model (cb.CatBoostRegressor): model to evaluate
-        X_val (np.ndarray): validation set
-        y_val (np.ndarray): validation target
-        X_oot (np.ndarray): out of time set
-        y_oot (np.ndarray): out of time target
+        oot (cb.Pool): oot data pool
+        y_oot (np.ndarray): target on out of time data
 
     Returns:
         Dict[str, float]: R2 of model
     """
+
     logger.debug('evaluating model')
     return {
         'oot': r2_score(y_oot, model.predict(oot)),
