@@ -10,6 +10,15 @@ from sklearn.metrics import r2_score
 def prepare_features(folder: Path) -> np.ndarray:
     """Aggregates raw data. Extracts following features:
 
+        - Log of Last trade price
+        - Last trade amount
+        - Log of total askV
+        - Log of total bidV
+        - Log of mid-price
+        - 10 levels of Ask -- Bid differences
+        - 7 levels of AskV -- BidV differences
+        - 10 levels of Log AskV -- BidV relation
+
     Args:
         folder (Path): path to raw data
 
@@ -47,7 +56,20 @@ def prepare_features(folder: Path) -> np.ndarray:
     )
 
 
-def train_test_oot(X, y):
+def train_test_oot(
+    X: np.ndarray,
+    y: np.ndarray
+) -> Tuple[cb.Pool, cb.Pool, cb.Pool, np.ndarray]:
+    """Splits data for train 50%, test 25% and out-of-time 25%
+
+    Args:
+        X (np.ndarray): All features
+        y (np.ndarray): target
+
+    Returns:
+        Tuple[cb.Pool, cb.Pool, cb.Pool, np.ndarray]: data
+        for training, testing and evaluation
+    """
 
     np.random.seed(69)
 
@@ -93,7 +115,7 @@ def prepare_target(folder: Path) -> Tuple[h5py._hl.dataset.Dataset]:
     return result['Return/TS'], result['Return/Res']
 
 
-def eval(
+def evaluate(
     model: cb.CatBoostRegressor,
     oot:   cb.Pool,
     y_oot: np.ndarray
@@ -160,7 +182,7 @@ def train(folder: Path, task_type: str = 'CPU') -> None:
     train, test, oot, y_oot = train_test_oot(X, y)
     model = prepare_model(task_type)
     model.fit(train, eval_set=test)
-    print(eval(model, oot, y_oot))
+    print(evaluate(model, oot, y_oot))
 
     model.save_model("trained_model")
     logger.info(f'Training ended! Model has been saved to ./trained_model')
